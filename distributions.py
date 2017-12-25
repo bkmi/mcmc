@@ -29,6 +29,12 @@ class bimodal_dist:
         return np.log(self.weight*(self.target_dist1.pdf(state) + self.target_dist2.pdf(state)))
 
 
+def gradient_gaussian_2d(x, y, sigx, sigy, rho, mux, muy):
+    gaussian = 1/(2 * pi * sigx * sigy * sqrt(1-rho**2)) * exp(-1/(2 * (1-rho)**2) * ((x - mux)**2/sigx**2 + (y - muy)**2/sigy**2 - 2 * rho * (x - mux) * (y - muy)/(sigx * sigy)))
+    dx = -(-2*rho*(-muy + y)/(sigx*sigy) + (-2*mux + 2*x)/sigx**2)*exp(-(-2*rho*(-mux + x)*(-muy + y)/(sigx*sigy) + (-muy + y)**2/sigy**2 + (-mux + x)**2/sigx**2)/(2*(-rho + 1)**2))/(4*pi*sigx*sigy*(-rho + 1)**2*sqrt(-rho**2 + 1))
+    dy = -(-2*rho*(-mux + x)/(sigx*sigy) + (-2*muy + 2*y)/sigy**2)*exp(-(-2*rho*(-mux + x)*(-muy + y)/(sigx*sigy) + (-muy + y)**2/sigy**2 + (-mux + x)**2/sigx**2)/(2*(-rho + 1)**2))/(4*pi*sigx*sigy*(-rho + 1)**2*sqrt(-rho**2 + 1))
+    return np.asarray([dx, dy])
+    
 def warped_normal_2d(mean, covar, samples):
     """Samples from a parabolic warping of a normal distribution in two dimensions.
     Warping:
