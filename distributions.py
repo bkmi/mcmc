@@ -113,8 +113,8 @@ class bimodal_dist:
 
     def grad_pdf(self, state):
         state = np.asarray(state)
-        sigx1, sigy1 = np.sqrt(self.cov1[0,0]), np.sqrt(self.cov1[1,1])
-        rho1 = self.cov1[0,1]/(sigx1 * sigy1)
+        sigx1, sigy1 = np.sqrt(self.cov1[0, 0]), np.sqrt(self.cov1[1, 1])
+        rho1 = self.cov1[0, 1] / (sigx1 * sigy1)
         mux1, muy1 = self.mean1[0], self.mean1[1]
         sigx2, sigy2 = np.sqrt(self.cov2[0, 0]), np.sqrt(self.cov2[1, 1])
         rho2 = self.cov2[0, 1] / (sigx2 * sigy2)
@@ -128,8 +128,8 @@ class bimodal_dist:
 
     def grad_logpdf(self, state):
         state = np.asarray(state)
-        sigx1, sigy1 = np.sqrt(self.cov1[0,0]), np.sqrt(self.cov1[1,1])
-        rho1 = self.cov1[0,1]/(sigx1 * sigy1)
+        sigx1, sigy1 = np.sqrt(self.cov1[0, 0]), np.sqrt(self.cov1[1, 1])
+        rho1 = self.cov1[0, 1] / (sigx1 * sigy1)
         mux1, muy1 = self.mean1[0], self.mean1[1]
         sigx2, sigy2 = np.sqrt(self.cov2[0, 0]), np.sqrt(self.cov2[1, 1])
         rho2 = self.cov2[0, 1] / (sigx2 * sigy2)
@@ -139,30 +139,158 @@ class bimodal_dist:
                                                              muy2, self.weight)
 
 
-def gradient_gaussian_2d(x, y, sigx, sigy, rho, mux, muy):
-    # gaussian = 1/(2 * pi * sigx * sigy * sqrt(1-rho**2)) * exp(-1/(2 * (1-rho)**2) * ((x - mux)**2/sigx**2 + (y - muy)**2/sigy**2 - 2 * rho * (x - mux) * (y - muy)/(sigx * sigy)))
-    dx = -(-2 * rho * (-muy + y) / (sigx * sigy) + (-2 * mux + 2 * x) / sigx ** 2) * np.exp(-(
-            -2 * rho * (-mux + x) * (-muy + y) / (sigx * sigy) + (-muy + y) ** 2 / sigy ** 2 + (
-            -mux + x) ** 2 / sigx ** 2) / (2 * (-rho + 1) ** 2)) / (
-                 4 * np.pi * sigx * sigy * (-rho + 1) ** 2 * np.sqrt(-rho ** 2 + 1))
-    dy = -(-2 * rho * (-mux + x) / (sigx * sigy) + (-2 * muy + 2 * y) / sigy ** 2) * np.exp(-(
-            -2 * rho * (-mux + x) * (-muy + y) / (sigx * sigy) + (-muy + y) ** 2 / sigy ** 2 + (
-            -mux + x) ** 2 / sigx ** 2) / (2 * (-rho + 1) ** 2)) / (
-                 4 * np.pi * sigx * sigy * (-rho + 1) ** 2 * np.sqrt(-rho ** 2 + 1))
-    return np.asarray([dx, dy])
+class parabolic_gaussian:
+    """Returns a frozen parabolic gaussian distribution, warped along the y axis. Standard scipy stats methods."""
+
+    def __init__(self, mean, cov, warp=0.5):
+        self.target_dist = scipy.stats.multivariate_normal(mean, cov)
+        self.mean = mean
+        self.cov = np.asarray(cov)
+        self.warp = warp
+
+    def rvs(self, num_samples):
+        samples = self.target_dist.rvs(num_samples)
+        samples[..., 0] = samples[..., 0] - self.warp * samples[..., 1] ** 2
+        return samples
+
+    def pdf(self, state):
+        state = np.asarray(state)
+        state[..., 0] = state[..., 0] + self.warp * state[..., 1] ** 2
+        return self.target_dist.pdf(state)
+
+    def logpdf(self, state):
+        state = np.asarray(state)
+        state[..., 0] = state[..., 0] + self.warp * state[..., 1] ** 2
+        return self.target_dist.logpdf(state)
+
+    @staticmethod
+    def parabolic_gaussian_pdf_gradient_2d(x, y, sigx, sigy, rho, mux, muy, warp):
+        # from sympy import *
+        # x, y = symbols('x y')
+        # sigx, sigy = symbols('sigx sigy')
+        # rho, mux, muy = symbols('rho mux muy')
+        # warp = symbols('warp')
+        #
+        # warpg = 1 / (2 * pi * sigx * sigy * sqrt(1 - rho ** 2)) * exp(
+        #     -1 / (2 * (1 - rho) ** 2) * (
+        #             ((x + warp * y ** 2) - mux) ** 2 / sigx ** 2 +
+        #             (y - muy) ** 2 / sigy ** 2 -
+        #             2 * rho * ((x + warp * y ** 2) - mux) * (y - muy) / (sigx * sigy)))
+        #
+        # print(diff(warpg, x))
+        # print(diff(warpg, y))
+        dx = -(-2 * rho * (-muy + y) / (sigx * sigy) + (-2 * mux + 2 * warp * y ** 2 + 2 * x) / sigx ** 2) * np.exp(-(
+                -2 * rho * (-muy + y) * (-mux + warp * y ** 2 + x) / (sigx * sigy) + (-muy + y) ** 2 / sigy ** 2 + (
+                -mux + warp * y ** 2 + x) ** 2 / sigx ** 2) / (2 * (-rho + 1) ** 2)) / (
+                     4 * np.pi * sigx * sigy * (-rho + 1) ** 2 * np.sqrt(-rho ** 2 + 1))
+        dy = -(-4 * rho * warp * y * (-muy + y) / (sigx * sigy) - 2 * rho * (-mux + warp * y ** 2 + x) / (
+                sigx * sigy) + (-2 * muy + 2 * y) / sigy ** 2 + 4 * warp * y * (
+                       -mux + warp * y ** 2 + x) / sigx ** 2) * np.exp(-(
+                -2 * rho * (-muy + y) * (-mux + warp * y ** 2 + x) / (sigx * sigy) + (-muy + y) ** 2 / sigy ** 2 + (
+                -mux + warp * y ** 2 + x) ** 2 / sigx ** 2) / (2 * (-rho + 1) ** 2)) / (
+                     4 * np.pi * sigx * sigy * (-rho + 1) ** 2 * np.sqrt(-rho ** 2 + 1))
+        return np.asarray([dx, dy])
+
+    @staticmethod
+    def parabolic_gaussian_logpdf_gradient_2d(x, y, sigx, sigy, rho, mux, muy, warp):
+        # from sympy import *
+        # x, y = symbols('x y')
+        # sigx, sigy = symbols('sigx sigy')
+        # rho, mux, muy = symbols('rho mux muy')
+        # warp = symbols('warp')
+        #
+        # warpg = 1 / (2 * pi * sigx * sigy * sqrt(1 - rho ** 2)) * exp(
+        #     -1 / (2 * (1 - rho) ** 2) * (
+        #             ((x + warp * y ** 2) - mux) ** 2 / sigx ** 2 +
+        #             (y - muy) ** 2 / sigy ** 2 -
+        #             2 * rho * ((x + warp * y ** 2) - mux) * (y - muy) / (sigx * sigy)))
+        # warpg = log(warpg)
+        #
+        # print(diff(warpg, x))
+        # print(diff(warpg, y))
+        dx = -(-2 * rho * (-muy + y) / (sigx * sigy) + (-2 * mux + 2 * warp * y ** 2 + 2 * x) / sigx ** 2) / (
+                2 * (-rho + 1) ** 2)
+        dy = -(-4 * rho * warp * y * (-muy + y) / (sigx * sigy) - 2 * rho * (-mux + warp * y ** 2 + x) / (
+                sigx * sigy) + (-2 * muy + 2 * y) / sigy ** 2 + 4 * warp * y * (
+                       -mux + warp * y ** 2 + x) / sigx ** 2) / (2 * (-rho + 1) ** 2)
+        return np.asarray([dx, dy])
+
+    def grad_pdf(self, state):
+        state = np.asarray(state)
+        sigx, sigy = np.sqrt(self.cov[0, 0]), np.sqrt(self.cov[1, 1])
+        rho = self.cov[0, 1] / (sigx * sigy)
+        mux, muy = self.mean[0], self.mean[1]
+        warp = self.warp
+        return parabolic_gaussian.parabolic_gaussian_pdf_gradient_2d(state[..., 0], state[..., 1], sigx, sigy, rho,
+                                                                     mux, muy, warp)
+
+    def grad_logpdf(self, state):
+        state = np.asarray(state)
+        sigx, sigy = np.sqrt(self.cov[0, 0]), np.sqrt(self.cov[1, 1])
+        rho = self.cov[0, 1] / (sigx * sigy)
+        mux, muy = self.mean[0], self.mean[1]
+        warp = self.warp
+        return parabolic_gaussian.parabolic_gaussian_logpdf_gradient_2d(state[..., 0], state[..., 1], sigx, sigy,
+                                                                        rho, mux, muy, warp)
 
 
-def gradient_log_gaussian_2d(x, y, sigx, sigy, rho, mux, muy):
-    # from sympy import *
-    # x, y = symbols('x y')
-    # sigx, sigy = symbols('sigx sigy')
-    # rho, mux, muy = symbols('rho mux muy')
-    # log_gaussian = log(1/(2 * pi * sigx * sigy * sqrt(1-rho**2)) * exp(-1/(2 * (1-rho)**2) * ((x - mux)**2/sigx**2 + (y - muy)**2/sigy**2 - 2 * rho * (x - mux) * (y - muy)/(sigx * sigy))))
-    # diff(log_gaussian, x)
-    # diff(log_gaussian, y)
-    dx = -(-2 * rho * (-muy + y) / (sigx * sigy) + (-2 * mux + 2 * x) / sigx ** 2) / (2 * (-rho + 1) ** 2)
-    dy = -(-2 * rho * (-mux + x) / (sigx * sigy) + (-2 * muy + 2 * y) / sigy ** 2) / (2 * (-rho + 1) ** 2)
-    return np.asarray([dx, dy])
+class stretched_normal:
+    def __init__(self, mean, cov):
+        self.target_dist = scipy.stats.multivariate_normal(mean, cov)
+        self.mean = mean
+        self.cov = np.asarray(cov)
+
+    def rvs(self, num_samples):
+        samples = self.target_dist.rvs(num_samples)
+        return samples
+
+    def pdf(self, state):
+        state = np.asarray(state)
+        return self.target_dist.pdf(state)
+
+    def logpdf(self, state):
+        state = np.asarray(state)
+        return self.target_dist.logpdf(state)
+
+    @staticmethod
+    def gradient_gaussian_2d(x, y, sigx, sigy, rho, mux, muy):
+        # gaussian = 1/(2 * pi * sigx * sigy * sqrt(1-rho**2)) * exp(-1/(2 * (1-rho)**2) * ((x - mux)**2/sigx**2 + (y - muy)**2/sigy**2 - 2 * rho * (x - mux) * (y - muy)/(sigx * sigy)))
+        dx = -(-2 * rho * (-muy + y) / (sigx * sigy) + (-2 * mux + 2 * x) / sigx ** 2) * np.exp(-(
+                -2 * rho * (-mux + x) * (-muy + y) / (sigx * sigy) + (-muy + y) ** 2 / sigy ** 2 + (
+                -mux + x) ** 2 / sigx ** 2) / (2 * (-rho + 1) ** 2)) / (
+                     4 * np.pi * sigx * sigy * (-rho + 1) ** 2 * np.sqrt(-rho ** 2 + 1))
+        dy = -(-2 * rho * (-mux + x) / (sigx * sigy) + (-2 * muy + 2 * y) / sigy ** 2) * np.exp(-(
+                -2 * rho * (-mux + x) * (-muy + y) / (sigx * sigy) + (-muy + y) ** 2 / sigy ** 2 + (
+                -mux + x) ** 2 / sigx ** 2) / (2 * (-rho + 1) ** 2)) / (
+                     4 * np.pi * sigx * sigy * (-rho + 1) ** 2 * np.sqrt(-rho ** 2 + 1))
+        return np.asarray([dx, dy])
+
+    @staticmethod
+    def gradient_log_gaussian_2d(x, y, sigx, sigy, rho, mux, muy):
+        # from sympy import *
+        # x, y = symbols('x y')
+        # sigx, sigy = symbols('sigx sigy')
+        # rho, mux, muy = symbols('rho mux muy')
+        # log_gaussian = log(1/(2 * pi * sigx * sigy * sqrt(1-rho**2)) * exp(-1/(2 * (1-rho)**2) * ((x - mux)**2/sigx**2 + (y - muy)**2/sigy**2 - 2 * rho * (x - mux) * (y - muy)/(sigx * sigy))))
+        # diff(log_gaussian, x)
+        # diff(log_gaussian, y)
+        dx = -(-2 * rho * (-muy + y) / (sigx * sigy) + (-2 * mux + 2 * x) / sigx ** 2) / (2 * (-rho + 1) ** 2)
+        dy = -(-2 * rho * (-mux + x) / (sigx * sigy) + (-2 * muy + 2 * y) / sigy ** 2) / (2 * (-rho + 1) ** 2)
+        return np.asarray([dx, dy])
+
+    def grad_pdf(self, state):
+        state = np.asarray(state)
+        sigx, sigy = np.sqrt(self.cov[0, 0]), np.sqrt(self.cov[1, 1])
+        rho = self.cov[0, 1] / (sigx * sigy)
+        mux, muy = self.mean[0], self.mean[1]
+        return stretched_normal.gradient_gaussian_2d(state[..., 0], state[..., 1], sigx, sigy, rho, mux, muy)
+
+    def grad_logpdf(self, state):
+        state = np.asarray(state)
+        sigx, sigy = np.sqrt(self.cov[0, 0]), np.sqrt(self.cov[1, 1])
+        rho = self.cov[0, 1] / (sigx * sigy)
+        mux, muy = self.mean[0], self.mean[1]
+        return stretched_normal.gradient_log_gaussian_2d(state[..., 0], state[..., 1], sigx, sigy, rho, mux, muy)
 
 
 def warped_gradient_gaussian_2d(x, y, sigx, sigy, rho, mux, muy, warp):
@@ -229,7 +357,7 @@ if __name__ == '__main__':
         out = warped_normal_2d(mean, cov, 100)
         print(out, out.shape)
 
-    if 1:
+    if 0:
         mean1 = [2, 0]
         cov1 = [[1, 0], [0, 1]]
 
@@ -237,5 +365,14 @@ if __name__ == '__main__':
         cov2 = [[1, 0], [0, 1]]
 
         rv = bimodal_dist(mean1, mean2, cov1, cov2)
-        a = np.asarray([[0,0],[1,1]])
+        a = np.asarray([[0, 0], [1, 1]])
         print(rv.grad_pdf(a))
+
+    if 1:
+        mean = [0, 0]
+        cov = [[1, 0], [0, 2]]
+
+        rv = parabolic_gaussian(mean, cov)
+        print(rv.rvs(10))
+        print(rv.pdf([1, 1]))
+        print(rv.logpdf([1, 1]))
