@@ -2,7 +2,28 @@ import numpy as np
 import scipy.stats
 
 
-# Acceptance rate at every step
+def lagk_ac(sequence, k, variance=None, v=False):
+    if k < 0:
+        raise ValueError('k must be equal to or greater than zero.')
+
+    if k == 0:
+        lag, seq = sequence, sequence
+    else:
+        lag, seq = sequence[:-k], sequence[k:]
+    m = np.mean(sequence, axis=0)
+
+    nom = np.sum(np.dot(lag - m, (seq - m).T).diagonal())
+    if not variance:
+        denom = np.sum(np.dot(sequence - m, (sequence - m).T).diagonal())
+    else:
+        denom = variance
+
+    if v:
+        print(nom, denom)
+
+    return np.divide(nom, denom)
+
+
 def acceptance_rate_per_step(states):
     states = np.asarray(states)
     steps = 0
@@ -31,15 +52,15 @@ def log_conditional_prob(from_state, to_state, distribution, tau=1):
     return (-4 * tau) ** (-1) * np.linalg.norm(to_state - from_state - tau * distribution.grad_logpdf(from_state)) ** 2
 
 
-def mala_step(state, distribution, tau=1, v=False, log=False):
+def mala_step(state, target_distribution, tau=1, v=False, log=False):
     state = np.asarray(state)
     proposed_state = (state +
-                      tau * distribution.grad_logpdf(state) +
+                      tau * target_distribution.grad_logpdf(state) +
                       np.sqrt(2 * tau) * scipy.stats.multivariate_normal([0, 0], np.eye(2)).rvs(1))
 
     if not log:
-        alpha = (distribution.pdf(proposed_state) * conditional_prob(proposed_state, state, distribution) /
-                 (distribution.pdf(state) * conditional_prob(state, proposed_state, distribution)))
+        alpha = (target_distribution.pdf(proposed_state) * conditional_prob(proposed_state, state, target_distribution) / (
+                target_distribution.pdf(state) * conditional_prob(state, proposed_state, target_distribution)))
 
         acceptance_prob = min([1, alpha])
         if np.random.rand() < acceptance_prob:
@@ -51,16 +72,16 @@ def mala_step(state, distribution, tau=1, v=False, log=False):
             print('state:', state,
                   'prop_state:', proposed_state,
                   'alpha:', alpha,
-                  'pdf_prop:', distribution.pdf(proposed_state),
-                  'cond_to_prop:', conditional_prob(proposed_state, state, distribution),
-                  'pdf_state:', distribution.pdf(state),
-                  'cond_to_state:', conditional_prob(state, proposed_state, distribution))
+                  'pdf_prop:', target_distribution.pdf(proposed_state),
+                  'cond_to_prop:', conditional_prob(proposed_state, state, target_distribution),
+                  'pdf_state:', target_distribution.pdf(state),
+                  'cond_to_state:', conditional_prob(state, proposed_state, target_distribution))
 
     else:
-        alpha = distribution.logpdf(proposed_state) + \
-                log_conditional_prob(proposed_state, state, distribution) - \
-                distribution.logpdf(state) - \
-                log_conditional_prob(state, proposed_state, distribution)
+        alpha = target_distribution.logpdf(proposed_state) + \
+                log_conditional_prob(proposed_state, state, target_distribution) - \
+                target_distribution.logpdf(state) - \
+                log_conditional_prob(state, proposed_state, target_distribution)
 
         acceptance_prob = min([np.log(1), alpha])
         if np.log(np.random.rand()) < acceptance_prob:
@@ -72,10 +93,10 @@ def mala_step(state, distribution, tau=1, v=False, log=False):
             print('state:', state,
                   'prop_state:', proposed_state,
                   'alpha:', alpha,
-                  'pdf_prop:', distribution.logpdf(proposed_state),
-                  'cond_to_prop:', log_conditional_prob(proposed_state, state, distribution),
-                  'pdf_state:', distribution.logpdf(state),
-                  'cond_to_state:', log_conditional_prob(state, proposed_state, distribution))
+                  'pdf_prop:', target_distribution.logpdf(proposed_state),
+                  'cond_to_prop:', log_conditional_prob(proposed_state, state, target_distribution),
+                  'pdf_state:', target_distribution.logpdf(state),
+                  'cond_to_state:', log_conditional_prob(state, proposed_state, target_distribution))
 
     if accepted:
         return proposed_state
