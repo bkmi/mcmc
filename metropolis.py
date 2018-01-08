@@ -12,9 +12,9 @@ def lagk_ac(sequence, k, variance=None, v=False):
         lag, seq = sequence[:-k], sequence[k:]
     m = np.mean(sequence, axis=0)
 
-    nom = np.sum(np.dot(lag - m, (seq - m).T).diagonal())
+    nom = np.sum(np.dot(lag[..., 0] - m[..., 0], (seq[..., 0] - m[..., 0]).T))
     if not variance:
-        denom = np.sum(np.dot(sequence - m, (sequence - m).T).diagonal())
+        denom = np.sum(np.dot(sequence[..., 0] - m[..., 0], (sequence[..., 0] - m[..., 0]).T))
     else:
         denom = variance
 

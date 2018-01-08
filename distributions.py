@@ -153,15 +153,44 @@ class parabolic_gaussian:
         samples[..., 0] = samples[..., 0] - self.warp * samples[..., 1] ** 2
         return samples
 
+    @staticmethod
+    def warpgaussian(x, y, sigx, sigy, rho, mux, muy, warp):
+        warpg = 1 / (2 * np.pi * sigx * sigy * np.sqrt(1 - rho ** 2)) * np.exp(-1 / (2 * (1 - rho) ** 2) * (
+                ((x + warp * y ** 2) - mux) ** 2 / sigx ** 2 + (y - muy) ** 2 / sigy ** 2 - 2 * rho * (
+                (x + warp * y ** 2) - mux) * (y - muy) / (sigx * sigy)))
+        return warpg
+
     def pdf(self, state):
+        # state = np.asarray(state)
+        # state[..., 0] = state[..., 0] + self.warp * state[..., 1] ** 2
+        # return self.target_dist.pdf(state)
+
         state = np.asarray(state)
-        state[..., 0] = state[..., 0] + self.warp * state[..., 1] ** 2
-        return self.target_dist.pdf(state)
+        sigx, sigy = np.sqrt(self.cov[0, 0]), np.sqrt(self.cov[1, 1])
+        rho = self.cov[0, 1] / (sigx * sigy)
+        mux, muy = self.mean[0], self.mean[1]
+        warp = self.warp
+
+        return parabolic_gaussian.warpgaussian(state[..., 0], state[..., 1], sigx, sigy, rho, mux, muy, warp)
+
+    @staticmethod
+    def warploggaussian(x, y, sigx, sigy, rho, mux, muy, warp):
+        logwarpg = np.log(1 / (2 * np.pi * sigx * sigy * np.sqrt(1 - rho ** 2))) + (-1 / (2 * (1 - rho) ** 2) * (
+                ((x + warp * y ** 2) - mux) ** 2 / sigx ** 2 + (y - muy) ** 2 / sigy ** 2 - 2 * rho * (
+                (x + warp * y ** 2) - mux) * (y - muy) / (sigx * sigy)))
+        return logwarpg
 
     def logpdf(self, state):
+        # state = np.asarray(state)
+        # state[..., 0] = state[..., 0] + self.warp * state[..., 1] ** 2
+
         state = np.asarray(state)
-        state[..., 0] = state[..., 0] + self.warp * state[..., 1] ** 2
-        return self.target_dist.logpdf(state)
+        sigx, sigy = np.sqrt(self.cov[0, 0]), np.sqrt(self.cov[1, 1])
+        rho = self.cov[0, 1] / (sigx * sigy)
+        mux, muy = self.mean[0], self.mean[1]
+        warp = self.warp
+
+        return parabolic_gaussian.warploggaussian(state[..., 0], state[..., 1], sigx, sigy, rho, mux, muy, warp)
 
     @staticmethod
     def parabolic_gaussian_pdf_gradient_2d(x, y, sigx, sigy, rho, mux, muy, warp):
