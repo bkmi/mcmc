@@ -52,11 +52,19 @@ def log_conditional_prob(from_state, to_state, distribution, tau=1):
     return (-4 * tau) ** (-1) * np.linalg.norm(to_state - from_state - tau * distribution.grad_logpdf(from_state)) ** 2
 
 
-def mala_step(state, target_distribution, tau=1, v=False, log=False):
+def mala_step(state, target_distribution, tau=1, v=False, log=False, proposal_dist=None):
     state = np.asarray(state)
+    if not proposal_dist:
+        proposal_dist = scipy.stats.multivariate_normal([0, 0], np.eye(2))
+    elif isinstance(proposal_dist, list) and callable(proposal_dist[0].rvs):
+        if v:
+            print('Selecting dist from list.')
+        pick = np.random.choice(len(proposal_dist))
+        proposal_dist = proposal_dist[pick]
+
     proposed_state = (state +
                       tau * target_distribution.grad_logpdf(state) +
-                      np.sqrt(2 * tau) * scipy.stats.multivariate_normal([0, 0], np.eye(2)).rvs(1))
+                      np.sqrt(2 * tau) * proposal_dist.rvs(1))
 
     if not log:
         alpha = (target_distribution.pdf(proposed_state) * conditional_prob(proposed_state, state, target_distribution) / (
