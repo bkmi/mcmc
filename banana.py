@@ -6,14 +6,19 @@ import sympy as sm
 
 
 class Banana:
-    def __init__(self, mean, cov, warp=1.0):
+    def __init__(self, mean, cov, warp=1.0, sym=True):
         self.mean = np.asarray(mean)
         self.cov = np.asarray(cov)
         self.warp = warp
+        self.sym = sym
 
         self.det_cov = np.linalg.det(self.cov)
         self.cov_inv = np.linalg.inv(self.cov)
         self.dim = self.mean.size
+        if self.sym & (self.dim != 4):
+            raise NotImplementedError('When using sym, we must work in 4d.')
+
+        self._sym_hess = None
 
     def rvs(self, num_samples):
         samples = scipy.stats.multivariate_normal(self.mean, self.cov).rvs(num_samples)
@@ -59,25 +64,50 @@ class Banana:
         else:
             return jac
 
-    def hessian(self, x):
-        x = self.transform(x)
-        y = (x - self.mean).T
-        y = np.tile(y, (self.dim, 1)).T
+    @property
+    def _hess(self):
+        if self._sym_hess is None:
+            x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
+            cov = sm.Matrix(self.cov.tolist())
+            cov_inv = cov ** -1
+            mu = sm.Matrix(self.mean.tolist())
+            xx = sm.Matrix([[x0],
+                            [x1 + w * x0 ** 2],
+                            [x2 + w * x0 ** 2],
+                            [x3 + w * x0 ** 2]])
+            xx = xx - mu
+            logpdf = -(sm.log(sm.sqrt(cov.det() * (2 * np.pi) ** 4)) + (1 / 2) * (xx.T * (cov_inv * xx))[0])
+            self._sym_hess = [[logpdf.diff(i).diff(j) for i in (x0, x1, x2, x3)] for j in (x0, x1, x2, x3)]
+        return self._sym_hess
 
-        dy = np.eye(self.dim)
-        dy[0, 1:] = 2 * self.warp * x[0]
-        # two are necessary for dydj and dydk
-        dy = dy.T
-        dy2 = dy.T
+    def hessian(self, x, sym=None):
+        if sym is None:
+            sym = self.sym
 
-        ddy = np.zeros((self.dim, self.dim, self.dim))
-        ddy[0, 0, 1:] = 2 * self.warp
+        if sym:
+            x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
+            pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
+            hess = np.asarray([[j.subs(pt) for j in i] for i in self._hess])
+            return hess
+        else:
+            x = self.transform(x)
+            y = (x - self.mean).T
+            y = np.tile(y, (self.dim, 1)).T
 
-        hess = -0.5 * (np.dot(ddy.T, np.dot(self.cov_inv, y)) +
-                       np.dot(dy.T, np.dot(self.cov_inv, dy2)) +
-                       np.dot(dy2.T, np.dot(self.cov_inv, dy)) +
-                       np.dot(y.T, np.dot(self.cov_inv, ddy)))
-        return hess.diagonal()
+            dy = np.eye(self.dim)
+            dy[0, 1:] = 2 * self.warp * x[0]
+            # two are necessary for dydj and dydk
+            dy = dy.T
+            dy2 = dy.T
+
+            ddy = np.zeros((self.dim, self.dim, self.dim))
+            ddy[0, 0, 1:] = 2 * self.warp
+
+            hess = -0.5 * (np.dot(ddy.T, np.dot(self.cov_inv, y)) +
+                           np.dot(dy.T, np.dot(self.cov_inv, dy2)) +
+                           np.dot(dy2.T, np.dot(self.cov_inv, dy)) +
+                           np.dot(y.T, np.dot(self.cov_inv, ddy)))
+            return hess.diagonal()
 
 
 def test_calcs():
@@ -121,15 +151,15 @@ def test_calcs():
 
 
 def main():
-    dim = 2
+    dim = 4
     cov = np.eye(dim)
     b = Banana(mean=np.zeros(dim), cov=cov, warp=2)
     data = b.rvs(1000)
     df = pd.DataFrame(data)
 
-    print(b.logpdf(np.ones(2)), b.grad_logpdf(np.ones(2)))
+    print(b.logpdf(np.ones(dim)), b.grad_logpdf(np.ones(dim)))
 
-    print(b.hessian(np.ones(2)))
+    print(b.hessian(np.ones(dim)))
     test_calcs()
 
 
