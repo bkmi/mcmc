@@ -90,7 +90,7 @@ class Banana:
             x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
             pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
             hess = np.asarray([[j.subs(pt) for j in i] for i in self._hess])
-            return hess
+            return hess.astype(np.float64)
         else:
             x = self.transform(x)
             y = (x - self.mean).T
@@ -112,6 +112,15 @@ class Banana:
             # You could also do this element-wise in python fairly easily.
             return hess.diagonal()
 
+    def G(self, x):
+        return -self.hessian(x)
+
+    def hessian_inv(self, x):
+        return np.linalg.inv(self.hessian(x))
+
+    def G_inv(self, x):
+        return -self.hessian_inv(x)
+
     @property
     def _dGdtheta(self):
         x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
@@ -120,12 +129,18 @@ class Banana:
             dGdtheta.append([[j.diff(x) for j in i] for i in self._hess])
         return dGdtheta
 
-    def dGdtheta(self, x):
-        x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
-        pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
-        dGdtheta = np.asarray([[[j.subs(pt) for j in i] for i in k] for k in self._dGdtheta])
-        return dGdtheta
+    def dGdtheta(self, x, sym=None):
+        if sym is None:
+            sym = self.sym
 
+        if sym:
+            x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
+            pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
+            dGdtheta = np.asarray([[[j.subs(pt) for j in i] for i in k] for k in self._dGdtheta])
+            return -dGdtheta.astype(np.float64)
+        else:
+            # Use G instead of hessian
+            raise NotImplementedError()
 
 
 def test_calcs():
