@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
 import scipy.stats
-import scipy.stats
 import sympy as sm
+
+import autograd.numpy as npag
+import autograd as ag
 
 
 class Banana:
@@ -107,7 +109,23 @@ class Banana:
                            np.dot(dy.T, np.dot(self.cov_inv, dy2)) +
                            np.dot(dy2.T, np.dot(self.cov_inv, dy)) +
                            np.dot(y.T, np.dot(self.cov_inv, ddy)))
+            # You could also do this element-wise in python fairly easily.
             return hess.diagonal()
+
+    @property
+    def _dGdtheta(self):
+        x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
+        dGdtheta = []
+        for x in [x0, x1, x2, x3]:
+            dGdtheta.append([[j.diff(x) for j in i] for i in self._hess])
+        return dGdtheta
+
+    def dGdtheta(self, x):
+        x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
+        pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
+        dGdtheta = np.asarray([[[j.subs(pt) for j in i] for i in k] for k in self._dGdtheta])
+        return dGdtheta
+
 
 
 def test_calcs():
@@ -153,7 +171,7 @@ def test_calcs():
 def main():
     dim = 4
     cov = np.eye(dim)
-    b = Banana(mean=np.zeros(dim), cov=cov, warp=2)
+    b = Banana(mean=np.zeros(dim), cov=cov, warp=2, sym=True)
     data = b.rvs(1000)
     df = pd.DataFrame(data)
 
