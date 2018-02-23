@@ -3,16 +3,18 @@ import pandas as pd
 import scipy.stats
 import sympy as sm
 
-import autograd.numpy as npag
+import autograd.numpy as npa
 import autograd as ag
 
 
 class Banana:
-    def __init__(self, mean, cov, warp=1.0, sym=True):
+    def __init__(self, mean, cov, warp=1.0, sym=False, special=True):
+        """special means dim=4, cov=np.eye(4)"""
         self.mean = np.asarray(mean)
         self.cov = np.asarray(cov)
         self.warp = warp
         self.sym = sym
+        self.special = special
 
         self.det_cov = np.linalg.det(self.cov)
         self.cov_inv = np.linalg.inv(self.cov)
@@ -82,15 +84,30 @@ class Banana:
             self._sym_hess = [[logpdf.diff(i).diff(j) for i in (x0, x1, x2, x3)] for j in (x0, x1, x2, x3)]
         return self._sym_hess
 
-    def hessian(self, x, sym=None):
+    def _special_hess(self, x):
+        x0, x1, x2, x3, w = x[0], x[1], x[2], x[3], self.warp
+        out = np.array([[-12.0 * w ** 2 * x0 ** 2 - 1.0 * w * (1.0 * w * x0 ** 2 + 1.0 * x1) - 1.0 * w * (
+                    w * x0 ** 2 + x1) - 1.0 * w * (1.0 * w * x0 ** 2 + 1.0 * x2) - 1.0 * w * (
+                                     w * x0 ** 2 + x2) - 1.0 * w * (1.0 * w * x0 ** 2 + 1.0 * x3) - 1.0 * w * (
+                                     w * x0 ** 2 + x3) - 1.0, -2.0 * w * x0, -2.0 * w * x0, -2.0 * w * x0],
+                        [-2.0 * w * x0, -1., 0, 0],
+                        [-2.0 * w * x0, 0, -1., 0],
+                        [-2.0 * w * x0, 0, 0, -1.]])
+        return out
+
+    def hessian(self, x, sym=None, special=None):
         if sym is None:
             sym = self.sym
+        if special is None:
+            special = self.special
 
-        if sym:
+        if sym and not special:
             x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
             pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
             hess = np.asarray([[j.subs(pt) for j in i] for i in self._hess])
             return hess.astype(np.float64)
+        elif special:
+            return self._special_hess(x)
         else:
             x = self.transform(x)
             y = (x - self.mean).T
@@ -112,14 +129,14 @@ class Banana:
             # You could also do this element-wise in python fairly easily.
             return hess.diagonal()
 
-    def G(self, x):
-        return -self.hessian(x)
+    def G(self, x, **kwargs):
+        return -self.hessian(x, **kwargs)
 
-    def hessian_inv(self, x):
-        return np.linalg.inv(self.hessian(x))
+    def hessian_inv(self, x, **kwargs):
+        return np.linalg.inv(self.hessian(x, **kwargs))
 
-    def G_inv(self, x):
-        return -self.hessian_inv(x)
+    def G_inv(self, x, **kwargs):
+        return -self.hessian_inv(x, **kwargs)
 
     @property
     def _dGdtheta(self):
@@ -129,18 +146,103 @@ class Banana:
             dGdtheta.append([[j.diff(x) for j in i] for i in self._hess])
         return dGdtheta
 
-    def dGdtheta(self, x, sym=None):
+    def _special_dGdtheta(self, x):
+        x0, x1, x2, x3, w = x[0], x[1], x[2], x[3], self.warp
+        out = np.array([[[-36.0 * w ** 2 * x0, -2.0 * w, -2.0 * w, -2.0 * w],
+                         [-2.0 * w, 0, 0, 0],
+                         [-2.0 * w, 0, 0, 0],
+                         [-2.0 * w, 0, 0, 0]],
+                        [[-2.0 * w, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 0, 0]],
+                        [[-2.0 * w, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 0, 0]],
+                        [[-2.0 * w, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 0, 0],
+                         [0, 0, 0, 0]]])
+        return out
+
+    def dGdtheta(self, x, sym=None, special=None):
         if sym is None:
             sym = self.sym
+        if special is None:
+            special = self.special
 
-        if sym:
+        if sym and not special:
             x0, x1, x2, x3, w = sm.symbols('x0 x1 x2 x3 w')
             pt = {x0: x[0], x1: x[1], x2: x[2], x3: x[3], w: self.warp}
             dGdtheta = np.asarray([[[j.subs(pt) for j in i] for i in k] for k in self._dGdtheta])
             return -dGdtheta.astype(np.float64)
+        elif special:
+            return -self._special_dGdtheta(x)
         else:
             # Use G instead of hessian
             raise NotImplementedError()
+
+
+class autogradBanana:
+    def __init__(self, mean, cov, warp=1.0):
+        self.mean = npa.asarray(mean)
+        self.cov = npa.asarray(cov)
+        self.warp = warp
+
+        self._grad_logpdf = ag.grad(self.logpdf)
+        self._hessian = ag.hessian(self.logpdf)
+        self._dGdtheta = ag.hessian(ag.grad(self.logpdf))
+
+        self.det_cov = npa.linalg.det(self.cov)
+        self.cov_inv = npa.linalg.inv(self.cov)
+        self.dim = self.mean.size
+
+    def rvs(self, num_samples):
+        samples = scipy.stats.multivariate_normal(self.mean, self.cov).rvs(num_samples)
+        samples = self.transform(samples, add=False)
+        return samples
+
+    def transform(self, x, add=True):
+        y = np.array([0,
+                      self.warp * x[0] ** 2,
+                      self.warp * x[0] ** 2,
+                      self.warp * x[0] ** 2])
+        # y = self.warp * x[0] ** 2
+        # y = y * np.ones_like(x)
+        # y[0] = 0
+        if add:
+            return (x + y)
+        else:
+            return (x - y)
+
+    def logpdf(self, x):
+        # x = self.transform(x)
+        u = npa.array([0,
+                      self.warp * x[0] ** 2,
+                      self.warp * x[0] ** 2,
+                      self.warp * x[0] ** 2])
+        z = x + u
+        y = (z - self.mean)
+        matrix_calc = 0.5 * npa.dot(y.T, npa.dot(self.cov_inv, y))
+        return -(npa.log(npa.sqrt(self.det_cov * (2 * npa.pi) ** self.dim)) + matrix_calc)
+
+    def grad_logpdf(self, x):
+        return self._grad_logpdf(x)
+
+    def hessian(self, x):
+        return self._hessian(x)
+
+    def G(self, x):
+        return -self.hessian(x)
+
+    def G_inv(self, x):
+        return npa.linalg.inv(self.G(x))
+
+    def dGdtheta(self, x):
+        return self._dGdtheta(x)
+
+
 
 
 def test_calcs():
@@ -185,14 +287,18 @@ def test_calcs():
 
 def main():
     dim = 4
-    cov = np.eye(dim)
-    b = Banana(mean=np.zeros(dim), cov=cov, warp=2, sym=True)
-    data = b.rvs(1000)
-    df = pd.DataFrame(data)
+    cov = npa.eye(dim)
+    # b = Banana(mean=np.zeros(dim), cov=cov, warp=2, sym=False, special=True)
+    # data = b.rvs(1000)
+    # print(b.logpdf(np.ones(dim)), b.grad_logpdf(np.ones(dim)))
+    # print(b.hessian(np.ones(dim)))
 
-    print(b.logpdf(np.ones(dim)), b.grad_logpdf(np.ones(dim)))
-
-    print(b.hessian(np.ones(dim)))
+    ab = autogradBanana(mean=npa.zeros(dim), cov=cov, warp=2)
+    print(ab.logpdf(npa.ones(dim)))
+    print(ab.grad_logpdf(npa.ones(dim)))
+    print(ab.hessian(npa.ones(dim)))
+    print(ab.G_inv(npa.ones(dim)))
+    print(ab.dGdtheta(npa.ones(dim)))
     test_calcs()
 
 

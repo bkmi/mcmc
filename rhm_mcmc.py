@@ -5,7 +5,10 @@ import scipy.optimize
 import sympy as sm
 import time
 
-from banana import Banana
+import autograd.numpy as npa
+import autograd as ag
+
+from banana import Banana, autogradBanana
 
 
 def H(theta, p, logpdf, metric, metric_inv):
@@ -31,26 +34,28 @@ def dHdtheta(theta, p, grad_logpdf, metric_inv, dGdtheta):
     return -dH
 
 
-def leapfrog_step(theta, p, grad_logpdf, metric_inv, dGdtheta, step_size, verbose=False):
-    p_e2 = scipy.optimize.fixed_point(
-        lambda p_e2: p - step_size / 2 * dHdtheta(theta, p_e2, grad_logpdf, metric_inv, dGdtheta), p,
-        xtol=1e-6, maxiter=500, method='del2')
-    if verbose:
-        print("Momentum at epsilon/2: {}".format(p_e2))
-    theta_e = scipy.optimize.fixed_point(
-        lambda theta_e: theta + step_size / 2 * (dHdp(theta, p_e2, metric_inv) +
-                                                 dHdtheta(theta_e, p_e2, grad_logpdf, metric_inv, dGdtheta)), theta,
-        xtol=1e-6, maxiter=500, method='del2')
-    if verbose:
-        print("Theta at epsilon: {}".format(theta_e))
-    p_e = p_e2 - step_size / 2 * dHdtheta(theta_e, p_e2, grad_logpdf, metric_inv, dGdtheta)
+def leapfrog_step(theta, p, grad_logpdf, metric_inv, dGdtheta, step_size, maxiter=10):
+    try:
+        p_e2 = scipy.optimize.fixed_point(
+            lambda p_e2: p - (step_size / 2) * dHdtheta(theta, p_e2, grad_logpdf, metric_inv, dGdtheta),
+            p, xtol=1e-8, maxiter=maxiter, method='del2')
+        theta_e = scipy.optimize.fixed_point(
+            lambda theta_e: theta + (step_size / 2) * (dHdp(theta, p_e2, metric_inv) + dHdp(theta_e, p_e2, metric_inv)),
+            theta, xtol=1e-8, maxiter=maxiter, method='del2')
+        p_e = p_e2 - (step_size / 2) * dHdtheta(theta_e, p_e2, grad_logpdf, metric_inv, dGdtheta)
+    except RuntimeError:
+        return None
     return theta_e, p_e
 
 
 def leapfrog(theta, p, n_steps, grad_logpdf, metric_inv, dGdtheta, step_size, **kwargs):
     data = [[theta, p]]
     for _ in range(n_steps):
-        theta, p = leapfrog_step(theta, p, grad_logpdf, metric_inv, dGdtheta, step_size, **kwargs)
+        next = leapfrog_step(theta, p, grad_logpdf, metric_inv, dGdtheta, step_size, **kwargs)
+        if next is None:
+            return None
+        else:
+            theta, p = next
         data.append([theta, p])
     return data[-1]
 
@@ -64,18 +69,22 @@ def accept_percentage(theta0, p0, theta, p, logpdf, metric, metric_inv):
 
 
 def mcmc(theta0, momentum, logpdf, grad_logpdf, metric, metric_inv, dGdtheta,
-         n_samples=4, n_steps=10, step_size=0.1, **kwargs):
+         n_samples=20, n_steps=10000, step_size=0.0005, **kwargs):
     theta = [np.asarray(theta0)]
-    p = [momentum(theta0, metric)]
     for _ in range(n_samples):
-        _theta, _p = leapfrog(theta[-1], p[-1], n_steps, grad_logpdf, metric_inv, dGdtheta, step_size, **kwargs)
-        alpha = accept_percentage(theta[-1], p[-1], _theta, _p, logpdf, metric, metric_inv)
+        p = momentum(theta[-1], metric)
+        next = leapfrog(theta[-1], p, n_steps, grad_logpdf, metric_inv, dGdtheta, step_size, **kwargs)
+        if next is None:
+            print('Problem integrating when \ntheta = {}\np = {}'.format(theta[-1], p))
+            continue
+        else:
+            _theta, _p = next
+
+        alpha = accept_percentage(theta[-1], p, _theta, _p, logpdf, metric, metric_inv)
         if (alpha > 0) or np.log(np.random.rand()) < alpha:
             theta.append(_theta)
-            p.append(_p)
         else:
             theta.append(theta[-1])
-            p.append(p[-1])
     return theta
 
 
@@ -107,22 +116,66 @@ if __name__ == '__main__':
 
             return hess
 
-    if 1:
-        dim = 4
-        cov = np.eye(dim)
-        b = Banana(mean=np.zeros(dim), cov=cov, warp=2, sym=True)
-        theta = np.array([0.05417055, 0.02961727, 0.02961727, 0.02961727])
-        p = np.array([0.57334575, 0.78403374, 0.78403374, 0.78403374])
+    dim = 4
+    cov = np.eye(dim)
+    b = Banana(mean=np.zeros(dim), cov=cov, warp=15, sym=False, special=True)
+    ab = autogradBanana(mean=npa.zeros(dim), cov=npa.eye(dim), warp=15)
+    theta = np.array([0.05417055, 0.02961727, 0.02961727, 0.02961727])
+    p = np.array([0.57334575, 0.78403374, 0.78403374, 0.78403374])
 
+
+    def sample_save(rounds,
+                    samples_file='samples_w15_auto.npy',
+                    time_file='samples_w15_auto.npy',
+                    samples_per_round=10, auto=False, verbose=True):
+        for _ in range(rounds):
+            samples = np.load(samples_file)
+
+            start = time.clock()
+            if not auto:
+                more = mcmc(samples[-1], momentum, b.logpdf, b.grad_logpdf, b.G, b.G_inv, b.dGdtheta,
+                            n_samples=samples_per_round)
+            else:
+                samples = mcmc(samples[-1], momentum, ab.logpdf, ab.grad_logpdf, ab.G, ab.G_inv, ab.dGdtheta,
+                               n_samples=samples_per_round,
+                               n_steps=1000, step_size=0.0005)
+            finished = time.clock() - start
+            samples = np.append(samples, more, axis=0)
+            np.save(samples_file, np.asarray(samples))
+
+            t = np.load(time_file)
+            t = np.append(t, np.array(finished))
+            np.save(time_file, t)
+            if verbose:
+                print('\n---round---\n')
+
+    if 0:
+        # basic
         start = time.clock()
-        print(leapfrog_step(theta, p, b.grad_logpdf, b.hessian_inv, b.dGdtheta, 0.01))
+
+        samples = mcmc(theta, momentum, b.logpdf, b.grad_logpdf, b.G, b.G_inv, b.dGdtheta, n_samples=10)
+
         print("Time: {}".format(time.clock() - start))
+        np.save('time_w15.npy', np.array(time.clock() - start))
 
-        def neg_hess(hessian):
-            def out(*args, **kwargs):
-                return -hessian(*args, **kwargs)
-            return out
-
-        samples = mcmc(theta, momentum, b.logpdf, b.grad_logpdf, b.G, b.G_inv, b.dGdtheta)
         print(samples)
-        print('okay')
+        np.save('samples_w15.npy', np.asarray(samples))
+
+        sample_save(50,
+                    samples_file='samples_w15.npy',
+                    time_file='time_w15.npy')
+
+    if 1:
+        # with autograd
+        start = time.clock()
+        samples = mcmc(theta, momentum, ab.logpdf, ab.grad_logpdf, ab.G, ab.G_inv, ab.dGdtheta,
+                       n_samples=2,
+                       n_steps=1000, step_size=0.0005)
+        print("Time: {}".format(time.clock() - start))
+        np.save('time_w15_auto.npy', np.array(time.clock() - start))
+
+        print(samples)
+        np.save('samples_w15_auto.npy', np.asarray(samples))
+
+        sample_save(10, auto=True)
+
