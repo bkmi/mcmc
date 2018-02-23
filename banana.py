@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 import sympy as sm
+import time
 
 import autograd.numpy as npa
 import autograd as ag
@@ -288,17 +289,26 @@ def test_calcs():
 def main():
     dim = 4
     cov = npa.eye(dim)
-    # b = Banana(mean=np.zeros(dim), cov=cov, warp=2, sym=False, special=True)
-    # data = b.rvs(1000)
-    # print(b.logpdf(np.ones(dim)), b.grad_logpdf(np.ones(dim)))
-    # print(b.hessian(np.ones(dim)))
+    b = Banana(mean=np.zeros(dim), cov=cov, warp=2, sym=False, special=True)
+
+    start = time.clock()
+    print(b.logpdf(npa.ones(dim)))
+    print(b.grad_logpdf(npa.ones(dim)))
+    print(b.hessian(npa.ones(dim)))
+    print(b.G_inv(npa.ones(dim)))
+    print(b.dGdtheta(npa.ones(dim)))
+    print('Banana time: {}'.format(time.clock() - start))
 
     ab = autogradBanana(mean=npa.zeros(dim), cov=cov, warp=2)
+
+    start = time.clock()
     print(ab.logpdf(npa.ones(dim)))
     print(ab.grad_logpdf(npa.ones(dim)))
     print(ab.hessian(npa.ones(dim)))
     print(ab.G_inv(npa.ones(dim)))
     print(ab.dGdtheta(npa.ones(dim)))
+    print('autogradBanana time: {}'.format(time.clock() - start))
+
     test_calcs()
 
 

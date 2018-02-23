@@ -120,8 +120,7 @@ if __name__ == '__main__':
     cov = np.eye(dim)
     b = Banana(mean=np.zeros(dim), cov=cov, warp=15, sym=False, special=True)
     ab = autogradBanana(mean=npa.zeros(dim), cov=npa.eye(dim), warp=15)
-    theta = np.array([0.05417055, 0.02961727, 0.02961727, 0.02961727])
-    p = np.array([0.57334575, 0.78403374, 0.78403374, 0.78403374])
+    theta = np.array([5, -3, 2, 4])
 
 
     def sample_save(rounds,
@@ -138,7 +137,7 @@ if __name__ == '__main__':
             else:
                 samples = mcmc(samples[-1], momentum, ab.logpdf, ab.grad_logpdf, ab.G, ab.G_inv, ab.dGdtheta,
                                n_samples=samples_per_round,
-                               n_steps=1000, step_size=0.0005)
+                               n_steps=2000, step_size=0.0003)
             finished = time.clock() - start
             samples = np.append(samples, more, axis=0)
             np.save(samples_file, np.asarray(samples))
@@ -149,33 +148,39 @@ if __name__ == '__main__':
             if verbose:
                 print('\n---round---\n')
 
-    if 0:
+    if 1:
         # basic
+        samp_file = 'samples_w15_off.npy'
+        time_file = 'time_w15_off.npy'
+
         start = time.clock()
 
         samples = mcmc(theta, momentum, b.logpdf, b.grad_logpdf, b.G, b.G_inv, b.dGdtheta, n_samples=10)
 
         print("Time: {}".format(time.clock() - start))
-        np.save('time_w15.npy', np.array(time.clock() - start))
+        np.save(time_file, np.array(time.clock() - start))
 
         print(samples)
-        np.save('samples_w15.npy', np.asarray(samples))
+        np.save(samp_file, np.asarray(samples))
 
         sample_save(50,
-                    samples_file='samples_w15.npy',
-                    time_file='time_w15.npy')
+                    samples_file=samp_file,
+                    time_file=time_file)
 
-    if 1:
+    if 0:
         # with autograd
+        samp_file = 'samples_w15_off.npy'
+        time_file = 'time_w15_off.npy'
+
         start = time.clock()
         samples = mcmc(theta, momentum, ab.logpdf, ab.grad_logpdf, ab.G, ab.G_inv, ab.dGdtheta,
                        n_samples=2,
                        n_steps=1000, step_size=0.0005)
         print("Time: {}".format(time.clock() - start))
-        np.save('time_w15_auto.npy', np.array(time.clock() - start))
+        np.save(time_file, np.array(time.clock() - start))
 
         print(samples)
-        np.save('samples_w15_auto.npy', np.asarray(samples))
+        np.save(samp_file, np.asarray(samples))
 
-        sample_save(10, auto=True)
+        sample_save(10, auto=True, samples_file=samp_file, time_file=time_file)
 
